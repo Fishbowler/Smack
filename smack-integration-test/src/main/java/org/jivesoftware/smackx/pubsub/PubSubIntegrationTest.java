@@ -417,13 +417,9 @@ public class PubSubIntegrationTest extends AbstractSmackIntegrationTest {
             // Subscribe to the node twice, using different configuration
             final Node subscriberNode = pubSubManagerTwo.getNode(nodename);
             final EntityBareJid subscriber = conTwo.getUser().asEntityBareJid();
-            final FillableSubscribeForm formA = subscriberNode.getSubscriptionOptions(subscriber.toString()).getFillableForm();
-            formA.setDigestFrequency(1);
-            final FillableSubscribeForm formB = subscriberNode.getSubscriptionOptions(subscriber.toString()).getFillableForm();
-            formB.setDigestFrequency(2);
 
-            final Subscription subscriptionA = subscriberNode.subscribe(subscriber, formA);
-            final Subscription subscriptionB = subscriberNode.subscribe(subscriber, formB);
+            final Subscription subscriptionA = subscriberNode.subscribe(subscriber);
+            final Subscription subscriptionB = subscriberNode.subscribe(subscriber);
 
             assertNotNull(subscriptionA.getId());
             assertNotNull(subscriptionB.getId());
@@ -506,12 +502,16 @@ public class PubSubIntegrationTest extends AbstractSmackIntegrationTest {
             // Subscribe to the node, using a different user than the owner of the node.
             final Node subscriberNode = pubSubManagerTwo.getNode(nodename);
             final EntityBareJid subscriber = conTwo.getUser().asEntityBareJid();
-            subscriberNode.subscribe(subscriber);
+            final Subscription sub = subscriberNode.subscribe(subscriber);
+
+            if (sub.state != Subscription.State.subscribed) {
+                throw new AssertionError("Setup failed - failed to subscribe. State was " + sub.state);
+            }
 
             try {
-                subscriberNode.unsubscribe(subscriber.asEntityBareJidString());
+                subscriberNode.unsubscribe(subscriber.asEntityBareJidString(), sub.id);
             } catch (NoResponseException | XMPPErrorException e) {
-                throw new AssertionError("Unsubscribe from a node failed.", e);
+                throw new AssertionError("Unsubscribe from a node failed for " + nodename + "," + subscriber.asEntityBareJidString(), e);
             }
         } finally {
             pubSubManagerOne.deleteNode(nodename);
@@ -543,20 +543,20 @@ public class PubSubIntegrationTest extends AbstractSmackIntegrationTest {
             throw new TestNotPossibleException("Feature 'multi-subscribe' not supported on the server.");
         }
 
-        final String nodename = "sinttest-unsubscribe-nodename-" + testRunId;
+        final String nodename = "sinttest-unsubscribeNoSub-nodename-" + testRunId;
         pubSubManagerOne.createNode(nodename);
 
         try {
-            // Subscribe to the node twice, using different configuration
+            // Subscribe to the node twice
             final Node subscriberNode = pubSubManagerTwo.getNode(nodename);
             final EntityBareJid subscriber = conTwo.getUser().asEntityBareJid();
-            final FillableSubscribeForm formA = subscriberNode.getSubscriptionOptions(subscriber.toString()).getFillableForm();
-            formA.setDigestFrequency(1);
-            final FillableSubscribeForm formB = subscriberNode.getSubscriptionOptions(subscriber.toString()).getFillableForm();
-            formB.setDigestFrequency(2);
 
-            subscriberNode.subscribe(subscriber, formA);
-            subscriberNode.subscribe(subscriber, formB);
+            final Subscription sub1 = subscriberNode.subscribe(subscriber); //once
+            final Subscription sub2 = subscriberNode.subscribe(subscriber); //twice
+
+            assertNotNull(sub1.id);
+            assertNotNull(sub2.id);
+            assertNotEquals(sub1.id, sub2.id);
 
             try {
                 subscriberNode.unsubscribe(subscriber.asEntityBareJidString());
@@ -587,7 +587,7 @@ public class PubSubIntegrationTest extends AbstractSmackIntegrationTest {
      */
     @SmackIntegrationTest
     public void unsubscribeNoSuchSubscriberTest() throws NoResponseException, XMPPErrorException, NotConnectedException, InterruptedException, PubSubException.NotAPubSubNodeException {
-        final String nodename = "sinttest-unsubscribe-nodename-" + testRunId;
+        final String nodename = "sinttest-unsubscribeNSS-nodename-" + testRunId;
         pubSubManagerOne.createNode(nodename);
 
         try {
@@ -622,7 +622,7 @@ public class PubSubIntegrationTest extends AbstractSmackIntegrationTest {
      */
     @SmackIntegrationTest
     public void unsubscribeInsufficientPrivilegesTest() throws NoResponseException, XMPPErrorException, NotConnectedException, InterruptedException, PubSubException.NotAPubSubNodeException {
-        final String nodename = "sinttest-unsubscribe-nodename-" + testRunId;
+        final String nodename = "sinttest-unsubscribeInsufficient-nodename-" + testRunId;
         final PubSubManager pubSubManagerThree = PubSubManager.getInstanceFor(conThree, PubSubManager.getPubSubService(conThree));
         pubSubManagerOne.createNode(nodename);
 
@@ -630,11 +630,11 @@ public class PubSubIntegrationTest extends AbstractSmackIntegrationTest {
             // Subscribe to the node, using a different user than the owner of the node.
             final Node subscriberNode = pubSubManagerTwo.getNode(nodename);
             final EntityBareJid subscriber = conTwo.getUser().asEntityBareJid();
-            subscriberNode.subscribe(subscriber);
+            final Subscription sub = subscriberNode.subscribe(subscriber);
 
             final Node unprivilegedNode = pubSubManagerThree.getNode(nodename);
             try {
-                unprivilegedNode.unsubscribe(subscriber.asEntityBareJidString());
+                unprivilegedNode.unsubscribe(subscriber.asEntityBareJidString(), sub.id);
                 fail("The server should have returned a <forbidden/> error, but did not.");
             } catch (XMPPErrorException e) {
                 assertEquals(StanzaError.Condition.forbidden, e.getStanzaError().getCondition());
@@ -661,7 +661,7 @@ public class PubSubIntegrationTest extends AbstractSmackIntegrationTest {
      */
     @SmackIntegrationTest
     public void unsubscribeNodeDoesNotExistTest() throws NoResponseException, XMPPErrorException, NotConnectedException, InterruptedException {
-        final String nodename = "sinttest-unsubscribe-nodename-" + testRunId;
+        final String nodename = "sinttest-unsubscribeDoesNotExist-nodename-" + testRunId;
         try {
             // Smack righteously doesn't facilitate unsubscribing from a non-existing node. Manually crafting stanza:
             final UnsubscribeExtension ext = new UnsubscribeExtension(conOne.getUser().asEntityBareJid().asEntityBareJidString(), "I-dont-exist", null);
@@ -703,20 +703,19 @@ public class PubSubIntegrationTest extends AbstractSmackIntegrationTest {
             throw new TestNotPossibleException("Feature 'multi-subscribe' not supported on the server.");
         }
 
-        final String nodename = "sinttest-unsubscribe-nodename-" + testRunId;
+        final String nodename = "sinttest-unsubscribeBad-nodename-" + testRunId;
         pubSubManagerOne.createNode(nodename);
 
         try {
             // Subscribe to the node twice, using different configuration
             final Node subscriberNode = pubSubManagerTwo.getNode(nodename);
             final EntityBareJid subscriber = conTwo.getUser().asEntityBareJid();
-            final FillableSubscribeForm formA = subscriberNode.getSubscriptionOptions(subscriber.toString()).getFillableForm();
-            formA.setDigestFrequency(1);
-            final FillableSubscribeForm formB = subscriberNode.getSubscriptionOptions(subscriber.toString()).getFillableForm();
-            formB.setDigestFrequency(2);
+            final Subscription sub1 = subscriberNode.subscribe(subscriber); //once
+            final Subscription sub2 = subscriberNode.subscribe(subscriber); //twice
 
-            subscriberNode.subscribe(subscriber, formA);
-            subscriberNode.subscribe(subscriber, formB);
+            assertNotNull(sub1.id);
+            assertNotNull(sub2.id);
+            assertNotEquals(sub1.id, sub2.id);
 
             try {
                 subscriberNode.unsubscribe(subscriber.asEntityBareJidString(), "this-is-not-an-existing-subscription-id");
@@ -961,7 +960,6 @@ public class PubSubIntegrationTest extends AbstractSmackIntegrationTest {
 
         final FillableConfigureForm config = pubSubManagerOne.getDefaultConfiguration().getFillableForm();
         config.setPersistentItems(true);
-        config.setNodeType(NodeType.leaf);
         config.setMaxItems(2);
 
         LeafNode node = (LeafNode) pubSubManagerOne.createNode(nodename, config);
