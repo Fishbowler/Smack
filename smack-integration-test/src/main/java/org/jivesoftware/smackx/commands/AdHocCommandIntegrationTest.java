@@ -97,6 +97,7 @@ public class AdHocCommandIntegrationTest extends AbstractSmackIntegrationTest {
                             .setRequired()
                             .addOption("+")
                             .addOption("-")
+                            .setValue("+")
                             .build();
             return DataForm.builder(DataForm.Type.form)
                .setTitle("Operation")

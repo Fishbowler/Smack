@@ -238,6 +238,7 @@ public class FillableForm extends FilledForm {
         }
 
         filledFields.put(fieldName, filledFormField);
+        //if (requiredFields != null && requiredFields.contains(fieldName)) {
         if (requiredFields.contains(fieldName)) {
             filledRequiredFields.add(fieldName);
             missingRequiredFields.remove(fieldName);
