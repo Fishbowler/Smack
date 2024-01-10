@@ -94,3 +94,48 @@ jobs:
             smack-*/build/libs/*.jar
             !**/*-test-fixtures.jar
             !**/*-tests.jar
+
+
+  check_branch:
+    runs-on: ubuntu-latest
+    outputs:
+      is_publishable_branch: ${{ steps.check-branch.outputs.is_publishable_branch }}
+    steps:
+      - name: check branch ${{ github.ref }} is either main or a version number
+        id: check-branch
+        run: |
+          if [[ ${{ github.ref }} == 'refs/heads/master' || ${{ github.ref }} =~ refs\/heads\/[0-9]+\.[0-9]+ ]]; then            
+            echo "is_publishable_branch=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_publishable_branch=false" >> $GITHUB_OUTPUT
+          fi
+
+  publish-maven:
+
+    name: Publish to Maven
+    runs-on: ubuntu-latest
+    needs: [ build, check_branch ]
+    if: ${{github.repository == 'igniterealtime/Smack' && github.event_name == 'push' && needs.check_branch.outputs.is_publishable_branch == 'true'}}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Defend against another commit quickly following the first
+          # We want the one that's been tested, rather than the head of main
+          ref: ${{ github.event.push.after }}
+      - name: Set up Java for publishing
+        uses: actions/setup-java@v4
+        with:
+          java-version: 11
+          distribution: temurin
+          cache: gradle
+      - name: Publish
+        run: |
+          ./gradlew publish \
+          -P customRepoUrl=https://www.igniterealtime.org/archiva/repository/maven \
+          -P customRepoUsername=${IGNITE_REALTIME_MAVEN_USERNAME} \
+          -P customRepoPassword=${IGNITE_REALTIME_MAVEN_PASSWORD} \
+          -P useSonatype=false
+        env:
+          IGNITE_REALTIME_MAVEN_USERNAME: ${{ secrets.IGNITE_REALTIME_MAVEN_USERNAME }}
+          IGNITE_REALTIME_MAVEN_PASSWORD: ${{ secrets.IGNITE_REALTIME_MAVEN_PASSWORD }}
